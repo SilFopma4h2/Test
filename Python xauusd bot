@@ -1,0 +1,140 @@
+import time
+import requests
+import pandas as pd
+from datetime import datetime
+
+# === CONFIGURATION ===
+TD_API_KEY = "YOUR_TWELVE_DATA_API_KEY"
+SYMBOL = "XAU/USD"
+INTERVAL = "1min"
+TELEGRAM_BOT_TOKEN = "YOUR_TELEGRAM_BOT_TOKEN"
+TELEGRAM_CHAT_ID = "YOUR_TELEGRAM_CHAT_ID"
+DISCORD_WEBHOOK_URL = "YOUR_DISCORD_WEBHOOK_URL"
+
+def formatted_time():
+    return datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+def send_telegram(message):
+    url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
+    data = {"chat_id": TELEGRAM_CHAT_ID, "text": message, "parse_mode": "Markdown"}
+    try:
+        requests.post(url, data=data)
+    except Exception as e:
+        print(f"Telegram error: {e}")
+
+def send_discord(message):
+    try:
+        requests.post(DISCORD_WEBHOOK_URL, json={"content": message})
+    except Exception as e:
+        print(f"Discord error: {e}")
+
+def fetch_data():
+    url = f"https://api.twelvedata.com/time_series?symbol={SYMBOL}&interval={INTERVAL}&outputsize=100&apikey={TD_API_KEY}&format=JSON"
+    response = requests.get(url)
+    data = response.json()
+    if "values" in data:
+        df = pd.DataFrame(data["values"])
+        df["datetime"] = pd.to_datetime(df["datetime"])
+        df.set_index("datetime", inplace=True)
+        df = df.astype(float)
+        df = df.sort_index()
+        return df
+    else:
+        print("Error fetching data:", data)
+        return None
+
+def compute_rsi(series, period=14):
+    delta = series.diff()
+    gain = delta.clip(lower=0).rolling(window=period).mean()
+    loss = -delta.clip(upper=0).rolling(window=period).mean()
+    rs = gain / (loss + 1e-10)
+    return 100 - (100 / (1 + rs))
+
+def calculate_indicators(df):
+    df["EMA9"] = df["close"].ewm(span=9).mean()
+    df["EMA21"] = df["close"].ewm(span=21).mean()
+    df["RSI"] = compute_rsi(df["close"], 14)
+    df["STD"] = df["close"].rolling(window=20).std()
+    df["UpperBB"] = df["close"].rolling(window=20).mean() + 2 * df["STD"]
+    df["LowerBB"] = df["close"].rolling(window=20).mean() - 2 * df["STD"]
+    df["range"] = df["high"] - df["low"]
+    return df
+
+def calculate_tp_sl(price, direction, avg_range):
+    tp1 = price + avg_range * 2 if direction == "BUY" else price - avg_range * 2
+    tp2 = price + avg_range * 3 if direction == "BUY" else price - avg_range * 3
+    tp3 = price + avg_range * 4 if direction == "BUY" else price - avg_range * 4
+    sl = price - avg_range * 1.5 if direction == "BUY" else price + avg_range * 1.5
+    return {
+        "tp1": round(tp1, 2),
+        "tp2": round(tp2, 2),
+        "tp3": round(tp3, 2),
+        "sl": round(sl, 2)
+    }
+
+def check_buy_signal(df):
+    last = df.iloc[-1]
+    prev = df.iloc[-2]
+    return (
+        last["EMA9"] > last["EMA21"] and
+        prev["EMA9"] < prev["EMA21"] and
+        last["RSI"] < 70 and
+        last["close"] < last["UpperBB"]
+    )
+
+def check_sell_signal(df):
+    last = df.iloc[-1]
+    prev = df.iloc[-2]
+    return (
+        last["EMA9"] < last["EMA21"] and
+        prev["EMA9"] > prev["EMA21"] and
+        last["RSI"] > 30 and
+        last["close"] > last["LowerBB"]
+    )
+
+def main():
+    send_telegram("📈 *XAU/USD Trading Bot started!*")
+    send_discord("📈 XAU/USD bot started!")
+
+    while True:
+        df = fetch_data()
+        if df is not None:
+            df = calculate_indicators(df)
+            price = df["close"].iloc[-1]
+            avg_range = df["range"].rolling(window=14).mean().iloc[-1]
+
+            if check_buy_signal(df):
+                levels = calculate_tp_sl(price, "BUY", avg_range)
+                msg = (
+                    f"🟢 *BUY Signal Detected*\n"
+                    f"⏰ {formatted_time()}\n"
+                    f"💰 Entry Price: {price:.2f}\n"
+                    f"🎯 TP1: {levels['tp1']}, TP2: {levels['tp2']}, TP3: {levels['tp3']}\n"
+                    f"🛡️ SL: {levels['sl']}"
+                )
+                send_telegram(msg)
+                send_discord(msg)
+                print(msg)
+
+            elif check_sell_signal(df):
+                levels = calculate_tp_sl(price, "SELL", avg_range)
+                msg = (
+                    f"🔴 *SELL Signal Detected*\n"
+                    f"⏰ {formatted_time()}\n"
+                    f"💰 Entry Price: {price:.2f}\n"
+                    f"🎯 TP1: {levels['tp1']}, TP2: {levels['tp2']}, TP3: {levels['tp3']}\n"
+                    f"🛡️ SL: {levels['sl']}"
+                )
+                send_telegram(msg)
+                send_discord(msg)
+                print(msg)
+
+            else:
+                print(f"{formatted_time()} - No signal")
+        else:
+            print(f"{formatted_time()} - Failed to fetch data")
+
+        time.sleep(60)
+
+if __name__ == "__main__":
+    main()
