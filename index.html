@@ -1,0 +1,157 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Meme Coin Profit Calculator</title>
+    <link rel="stylesheet" href="styles.css">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
+</head>
+<body>
+    <div class="container">
+        <header class="header">
+            <div class="logo">
+                <i class="fas fa-rocket"></i>
+                <h1>Meme Coin Profit Calculator</h1>
+            </div>
+            <p class="subtitle">Calculate your potential profits from meme coin investments based on market cap changes</p>
+        </header>
+
+        <main class="main-content">
+            <div class="calculator-card">
+                <form class="calculator-form" id="calculatorForm">
+                    <div class="input-section">
+                        <h2><i class="fas fa-chart-line"></i> Investment Parameters</h2>
+                        
+                        <div class="input-group">
+                            <label for="initialMcp">
+                                Initial Market Cap (MCP)
+                                <span class="tooltip" data-tooltip="The starting market cap value of the meme coin">
+                                    <i class="fas fa-info-circle"></i>
+                                </span>
+                            </label>
+                            <div class="input-wrapper">
+                                <span class="input-prefix">$</span>
+                                <input 
+                                    type="text" 
+                                    id="initialMcp" 
+                                    placeholder="1,000,000" 
+                                    class="form-input"
+                                >
+                            </div>
+                        </div>
+
+                        <div class="input-group">
+                            <label for="finalMcp">
+                                Final Market Cap (MCP)
+                                <span class="tooltip" data-tooltip="The target or final market cap value of the meme coin">
+                                    <i class="fas fa-info-circle"></i>
+                                </span>
+                            </label>
+                            <div class="input-wrapper">
+                                <span class="input-prefix">$</span>
+                                <input 
+                                    type="text" 
+                                    id="finalMcp" 
+                                    placeholder="10,000,000" 
+                                    class="form-input"
+                                >
+                            </div>
+                        </div>
+
+                        <div class="input-group">
+                            <label for="solInvestment">
+                                SOL Investment Amount
+                                <span class="tooltip" data-tooltip="The amount you invested in SOL cryptocurrency">
+                                    <i class="fas fa-info-circle"></i>
+                                </span>
+                            </label>
+                            <div class="input-wrapper">
+                                <span class="input-prefix">◎</span>
+                                <input 
+                                    type="text" 
+                                    id="solInvestment" 
+                                    placeholder="100" 
+                                    class="form-input"
+                                >
+                            </div>
+                        </div>
+
+                        <div class="button-group">
+                            <button type="button" id="calculateBtn" class="btn btn-primary">
+                                <i class="fas fa-calculator"></i>
+                                Calculate Profit
+                            </button>
+                            <button type="button" id="resetBtn" class="btn btn-secondary">
+                                <i class="fas fa-redo"></i>
+                                Reset
+                            </button>
+                        </div>
+                    </div>
+                </form>
+
+                <div class="results-section" id="resultsSection">
+                    <h2><i class="fas fa-chart-bar"></i> Calculation Results</h2>
+                    
+                    <div class="results-grid">
+                        <div class="result-card">
+                            <div class="result-icon profit">
+                                <i class="fas fa-trending-up"></i>
+                            </div>
+                            <div class="result-content">
+                                <span class="result-label">Profit/Loss</span>
+                                <span class="result-value" id="profitLoss">$0.00</span>
+                            </div>
+                        </div>
+
+                        <div class="result-card">
+                            <div class="result-icon">
+                                <i class="fas fa-percentage"></i>
+                            </div>
+                            <div class="result-content">
+                                <span class="result-label">Percentage Gain/Loss</span>
+                                <span class="result-value" id="percentageGain">0.00%</span>
+                            </div>
+                        </div>
+
+                        <div class="result-card">
+                            <div class="result-icon">
+                                <i class="fas fa-wallet"></i>
+                            </div>
+                            <div class="result-content">
+                                <span class="result-label">Final Portfolio Value</span>
+                                <span class="result-value" id="finalValue">◎0.00</span>
+                            </div>
+                        </div>
+
+                        <div class="result-card">
+                            <div class="result-icon">
+                                <i class="fas fa-chart-pie"></i>
+                            </div>
+                            <div class="result-content">
+                                <span class="result-label">ROI (Return on Investment)</span>
+                                <span class="result-value" id="roi">0.00%</span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="market-cap-multiplier">
+                        <div class="multiplier-content">
+                            <span class="multiplier-label">Market Cap Multiplier:</span>
+                            <span class="multiplier-value" id="mcpMultiplier">1.00x</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </main>
+
+        <footer class="footer">
+            <p>&copy; 2024 Meme Coin Profit Calculator. Built for educational purposes.</p>
+            <p class="disclaimer">⚠️ This calculator is for educational purposes only. Cryptocurrency investments are risky.</p>
+        </footer>
+    </div>
+
+    <script src="script.js"></script>
+</body>
+</html>
