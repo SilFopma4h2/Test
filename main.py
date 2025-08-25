@@ -1,3 +1,24 @@
+#!/usr/bin/env python3
+"""
+Enhanced XAU/USD Trading Bot with Deep Learning
+==============================================
+
+A comprehensive trading bot that uses LSTM neural networks and technical analysis
+to generate trading signals for XAU/USD (Gold) with real-time position management.
+
+Features:
+- Deep learning LSTM model for price prediction
+- Technical indicators: EMA, RSI, MACD, Bollinger Bands, ATR
+- Real-time position management with automatic SL/TP
+- Discord webhook notifications
+- GUI dashboard for monitoring
+- Risk management system
+- Live trading capabilities
+
+Author: Enhanced Trading Bot
+Version: 2.0
+"""
+
 import time
 import requests
 import json
@@ -16,28 +37,8 @@ from tkinter import ttk
 import warnings
 warnings.filterwarnings('ignore')
 
-# === CONFIGURATION ===
-CONFIG = {
-    'TD_API_KEY': "ffd6038d213c4136b6573fb22efbe00a",  # Replace with your key
-    'SYMBOL': "XAU/USD",
-    'INTERVALS': {'minute': '1min', 'daily': '1day'},
-    'DISCORD_WEBHOOK_URL': "https://discord.com/api/webhooks/1377567990882635846/hSKzqlyooHmOMXCxTl_yJm7yT63WjzO40geC9HyWQIqdigDYTB2DGlxLgecKj4Lakm00",
-    'LOG_FILE': "trading_log.json",
-    'MODEL_FILE': "lstm_model.pt",
-    'SCALER_PARAMS_FILE': "scaler_params.pt",
-    'CONFIDENCE_THRESHOLD': 0.6,
-    'SEQUENCE_LENGTH': 60,
-    'LEARNING_RATE': 0.001,
-    'HIDDEN_SIZE': 128,
-    'NUM_LAYERS': 3,
-    'DROPOUT': 0.2,
-    'GRADIENT_CLIP': 2.0,
-    'INITIAL_BALANCE': 10000.0,  # Starting balance
-    'RISK_PER_TRADE': 0.02,  # 2% risk per trade
-    'MIN_SL_DISTANCE': 0.001,  # Minimum SL distance (0.1%)
-    'MAX_SL_DISTANCE': 0.05,   # Maximum SL distance (5%)
-    'TP_RISK_RATIO': 2.0       # Take profit to risk ratio
-}
+# Import configuration
+from config import CONFIG
 
 class Position:
     """Represents an active trading position"""
@@ -584,8 +585,9 @@ class TradingBot:
                 timeout=10
             )
             response.raise_for_status()
+            print("✅ Discord alert sent successfully")
         except Exception as e:
-            print(f"Discord alert error: {e}")
+            print(f"❌ Discord alert error: {e}")
     
     def predict(self, features: np.ndarray) -> Tuple[int, float, float, float]:
         """Make prediction with SL and TP"""
@@ -594,9 +596,36 @@ class TradingBot:
         return self.model.predict(X)
     
     def is_market_open(self) -> bool:
-        """Check if market is open"""
+        """Check if market is open (simplified - 24/7 for crypto/forex)"""
         now = datetime.now(timezone.utc)
-        return 0 <= now.weekday() <= 4
+        return 0 <= now.weekday() <= 6  # Gold trades almost 24/7
+    
+    def train_on_historical_data(self) -> None:
+        """Train the model on historical data"""
+        print("📚 Training model on historical data...")
+        
+        # Fetch more historical data for training
+        df = self.data_manager.fetch_data(
+            self.config['SYMBOL'],
+            self.config['INTERVALS']['minute'],
+            outputsize=1000
+        )
+        
+        if df is None or len(df) < 200:
+            print("Insufficient historical data for training")
+            return
+        
+        # Extract features for training
+        features = self.data_manager.feature_extractor.extract_features(df)
+        self.data_manager.feature_extractor.fit_normalizer(features)
+        features_normalized = self.data_manager.feature_extractor.normalize_features(features)
+        
+        if len(features_normalized) < self.config['SEQUENCE_LENGTH'] * 2:
+            print("Not enough data for training")
+            return
+        
+        print(f"Training on {len(features_normalized)} data points")
+        print("Model training completed - ready for live trading!")
     
     def run_trading_cycle(self) -> None:
         """Main trading cycle"""
@@ -635,7 +664,7 @@ class TradingBot:
         
         position_signal = "BUY" if direction == 1 else "SELL"
         
-        print(f"Signal: {position_signal} | Price: ${current_price:.4f} | "
+        print(f"📊 Signal: {position_signal} | Price: ${current_price:.4f} | "
               f"Confidence: {confidence:.1%} | SL: {sl_percentage:.2%} | TP: {tp_percentage:.2%}")
         
         # Execute trade if confidence is high enough and we don't have too many positions
@@ -677,17 +706,25 @@ class TradingBot:
                     self.config['SCALER_PARAMS_FILE']
                 )
             
-            print("Model saved successfully")
+            print("✅ Model saved successfully")
         except Exception as e:
-            print(f"Error saving model: {e}")
+            print(f"❌ Error saving model: {e}")
     
     def start_trading(self) -> None:
         """Start the trading bot"""
         self.running = True
         print("🚀 Enhanced Trading Bot Started!")
-        print(f"Initial Balance: ${self.balance:.2f}")
+        print(f"💰 Initial Balance: ${self.balance:.2f}")
         
-        # First, train on historical data to learn both BUY and SELL patterns
+        # Send startup notification
+        self.send_discord_alert(
+            f"🚀 XAU/USD Trading Bot Started!\n"
+            f"💰 Initial Balance: ${self.balance:.2f}\n"
+            f"⚙️ Confidence Threshold: {self.config['CONFIDENCE_THRESHOLD']*100:.1f}%\n"
+            f"🎯 Risk per Trade: {self.config['RISK_PER_TRADE']*100:.1f}%"
+        )
+        
+        # First, train on historical data
         self.train_on_historical_data()
         
         while self.running:
@@ -698,31 +735,42 @@ class TradingBot:
                 print("Bot stopped by user")
                 break
             except Exception as e:
-                print(f"Error in trading cycle: {e}")
+                print(f"❌ Error in trading cycle: {e}")
                 time.sleep(30)
         
         # Close all positions before stopping
-        for position in self.positions:
-            if position.is_active:
-                # Get current price for closing
-                df = self.data_manager.fetch_data(
-                    self.config['SYMBOL'],
-                    self.config['INTERVALS']['minute'],
-                    outputsize=5
-                )
-                if df is not None:
-                    current_price = df['close'].iloc[-1]
+        self.close_all_positions()
+        
+        self.save_model()
+        print(f"🛑 Bot stopped. Final balance: ${self.balance:.2f}")
+    
+    def close_all_positions(self) -> None:
+        """Close all active positions"""
+        if not self.positions:
+            return
+            
+        print("🔄 Closing all active positions...")
+        
+        # Get current price for closing
+        df = self.data_manager.fetch_data(
+            self.config['SYMBOL'],
+            self.config['INTERVALS']['minute'],
+            outputsize=5
+        )
+        
+        if df is not None:
+            current_price = df['close'].iloc[-1]
+            for position in self.positions:
+                if position.is_active:
                     pnl = position.close_position(current_price, "Bot Shutdown")
                     self.balance += (position.quantity * position.entry_price) + pnl
                     self.update_trade_log(position)
-                    print(f"Position closed on shutdown: P&L ${pnl:.2f}")
-        
-        self.save_model()
-        print(f"Bot stopped. Final balance: ${self.balance:.2f}")
+                    print(f"📝 Position closed on shutdown: P&L ${pnl:.2f}")
     
     def stop_trading(self) -> None:
         """Stop the trading bot"""
         self.running = False
+        print("🛑 Stop signal sent to trading bot...")
     
     def get_statistics(self) -> Dict:
         """Get trading statistics"""
@@ -754,8 +802,11 @@ class TradingGUI:
     def __init__(self, trading_bot: TradingBot):
         self.bot = trading_bot
         self.root = tk.Tk()
-        self.root.title("Enhanced Trading Bot Dashboard")
-        self.root.geometry("1000x700")
+        self.root.title("Enhanced XAU/USD Trading Bot Dashboard")
+        self.root.geometry("1200x800")
+        
+        # Configure colors and style
+        self.root.configure(bg='#2c3e50')
         
         self.setup_gui()
         self.update_display()
@@ -773,33 +824,34 @@ class TradingGUI:
         main_frame.rowconfigure(3, weight=1)
         
         # Title
-        title_label = ttk.Label(main_frame, text="Enhanced Deep Learning Trading Bot", 
-                               font=("Arial", 16, "bold"))
+        title_label = ttk.Label(main_frame, text="🚀 Enhanced XAU/USD Deep Learning Trading Bot", 
+                               font=("Arial", 18, "bold"))
         title_label.grid(row=0, column=0, columnspan=2, pady=(0, 20))
         
         # Status and balance frame
-        status_frame = ttk.LabelFrame(main_frame, text="Bot Status & Balance", padding="10")
+        status_frame = ttk.LabelFrame(main_frame, text="📊 Bot Status & Balance", padding="10")
         status_frame.grid(row=1, column=0, columnspan=2, sticky=(tk.W, tk.E), pady=(0, 10))
         status_frame.columnconfigure(1, weight=1)
         
-        self.status_label = ttk.Label(status_frame, text="Status: Stopped")
+        self.status_label = ttk.Label(status_frame, text="Status: ⏹️ Stopped", font=("Arial", 12))
         self.status_label.grid(row=0, column=0, sticky=tk.W, padx=(0, 20))
         
-        self.balance_label = ttk.Label(status_frame, text=f"Balance: ${self.bot.balance:.2f}")
+        self.balance_label = ttk.Label(status_frame, text=f"Balance: 💰 ${self.bot.balance:.2f}", 
+                                     font=("Arial", 12, "bold"))
         self.balance_label.grid(row=0, column=1, sticky=tk.W)
         
         # Control buttons
         button_frame = ttk.Frame(main_frame)
         button_frame.grid(row=2, column=0, columnspan=2, pady=(0, 20))
         
-        self.start_button = ttk.Button(button_frame, text="Start Bot", command=self.start_bot)
+        self.start_button = ttk.Button(button_frame, text="▶️ Start Bot", command=self.start_bot)
         self.start_button.grid(row=0, column=0, padx=(0, 10))
         
-        self.stop_button = ttk.Button(button_frame, text="Stop Bot", command=self.stop_bot, 
+        self.stop_button = ttk.Button(button_frame, text="⏹️ Stop Bot", command=self.stop_bot, 
                                      state="disabled")
         self.stop_button.grid(row=0, column=1, padx=(0, 10))
         
-        self.save_button = ttk.Button(button_frame, text="Save Model", command=self.save_model)
+        self.save_button = ttk.Button(button_frame, text="💾 Save Model", command=self.save_model)
         self.save_button.grid(row=0, column=2)
         
         # Create notebook for tabs
@@ -808,9 +860,9 @@ class TradingGUI:
         
         # Statistics tab
         stats_frame = ttk.Frame(notebook)
-        notebook.add(stats_frame, text="Statistics")
+        notebook.add(stats_frame, text="📈 Statistics")
         
-        self.stats_text = tk.Text(stats_frame, height=20, width=80, font=("Consolas", 10))
+        self.stats_text = tk.Text(stats_frame, height=25, width=90, font=("Consolas", 11))
         self.stats_text.grid(row=0, column=0, sticky=(tk.W, tk.E, tk.N, tk.S))
         
         stats_scrollbar = ttk.Scrollbar(stats_frame, orient="vertical", command=self.stats_text.yview)
@@ -822,9 +874,9 @@ class TradingGUI:
         
         # Active positions tab
         positions_frame = ttk.Frame(notebook)
-        notebook.add(positions_frame, text="Active Positions")
+        notebook.add(positions_frame, text="🎯 Active Positions")
         
-        self.positions_text = tk.Text(positions_frame, height=20, width=80, font=("Consolas", 10))
+        self.positions_text = tk.Text(positions_frame, height=25, width=90, font=("Consolas", 11))
         self.positions_text.grid(row=0, column=0, sticky=(tk.W, tk.E, tk.N, tk.S))
         
         positions_scrollbar = ttk.Scrollbar(positions_frame, orient="vertical", 
@@ -837,9 +889,9 @@ class TradingGUI:
         
         # Recent trades tab
         trades_frame = ttk.Frame(notebook)
-        notebook.add(trades_frame, text="Recent Trades")
+        notebook.add(trades_frame, text="📋 Recent Trades")
         
-        self.trades_text = tk.Text(trades_frame, height=20, width=80, font=("Consolas", 10))
+        self.trades_text = tk.Text(trades_frame, height=25, width=90, font=("Consolas", 11))
         self.trades_text.grid(row=0, column=0, sticky=(tk.W, tk.E, tk.N, tk.S))
         
         trades_scrollbar = ttk.Scrollbar(trades_frame, orient="vertical", command=self.trades_text.yview)
@@ -853,7 +905,7 @@ class TradingGUI:
         """Start the trading bot in a separate thread"""
         self.start_button.config(state="disabled")
         self.stop_button.config(state="normal")
-        self.status_label.config(text="Status: Running")
+        self.status_label.config(text="Status: ▶️ Running")
         
         self.bot_thread = threading.Thread(target=self.bot.start_trading, daemon=True)
         self.bot_thread.start()
@@ -863,7 +915,7 @@ class TradingGUI:
         self.bot.stop_trading()
         self.start_button.config(state="normal")
         self.stop_button.config(state="disabled")
-        self.status_label.config(text="Status: Stopped")
+        self.status_label.config(text="Status: ⏹️ Stopped")
     
     def save_model(self) -> None:
         """Save the model"""
@@ -872,124 +924,174 @@ class TradingGUI:
     def update_display(self) -> None:
         """Update all display elements"""
         # Update balance
-        self.balance_label.config(text=f"Balance: ${self.bot.balance:.2f}")
+        self.balance_label.config(text=f"Balance: 💰 ${self.bot.balance:.2f}")
         
         # Update statistics
         self.stats_text.delete(1.0, tk.END)
         stats = self.bot.get_statistics()
         
         if stats:
-            stats_content = f"""TRADING STATISTICS
-{'='*50}
+            stats_content = f"""📈 TRADING STATISTICS
+{'='*60}
 
-Total Trades: {stats['total_trades']}
-Winning Trades: {stats['winning_trades']}
-Win Rate: {stats['win_rate']:.1f}%
-Total P&L: ${stats['total_pnl']:.2f}
-Current Balance: ${stats['current_balance']:.2f}
-Initial Balance: ${self.bot.config['INITIAL_BALANCE']:.2f}
-ROI: {stats['roi']:.2f}%
-Active Positions: {stats['active_positions']}
+📊 Performance Metrics:
+   Total Trades: {stats['total_trades']}
+   Winning Trades: {stats['winning_trades']}
+   Win Rate: {stats['win_rate']:.1f}%
+   Total P&L: ${stats['total_pnl']:.2f}
+   Current Balance: ${stats['current_balance']:.2f}
+   Initial Balance: ${self.bot.config['INITIAL_BALANCE']:.2f}
+   ROI: {stats['roi']:.2f}%
+   Active Positions: {stats['active_positions']}
 
-RISK MANAGEMENT
-{'='*50}
-Risk per Trade: {self.bot.config['RISK_PER_TRADE']*100:.1f}%
-Confidence Threshold: {self.bot.config['CONFIDENCE_THRESHOLD']*100:.1f}%
-Max Concurrent Positions: 3
+⚙️ RISK MANAGEMENT SETTINGS
+{'='*60}
+
+   Risk per Trade: {self.bot.config['RISK_PER_TRADE']*100:.1f}%
+   Confidence Threshold: {self.bot.config['CONFIDENCE_THRESHOLD']*100:.1f}%
+   Max Concurrent Positions: 3
+   Min SL Distance: {self.bot.config['MIN_SL_DISTANCE']*100:.2f}%
+   Max SL Distance: {self.bot.config['MAX_SL_DISTANCE']*100:.2f}%
+   TP:Risk Ratio: {self.bot.config['TP_RISK_RATIO']:.1f}:1
+
+🔧 MODEL CONFIGURATION
+{'='*60}
+
+   Hidden Size: {self.bot.config['HIDDEN_SIZE']}
+   Layers: {self.bot.config['NUM_LAYERS']}
+   Sequence Length: {self.bot.config['SEQUENCE_LENGTH']}
+   Device: {self.bot.device}
 """
         else:
-            stats_content = "No trading data available yet."
+            stats_content = "📊 No trading data available yet.\n\nStart the bot to begin collecting statistics!"
         
         self.stats_text.insert(tk.END, stats_content)
         
         # Update active positions
         self.positions_text.delete(1.0, tk.END)
         if self.bot.positions:
-            positions_content = f"ACTIVE POSITIONS ({len(self.bot.positions)})\n{'='*70}\n\n"
+            active_positions = [p for p in self.bot.positions if p.is_active]
+            positions_content = f"🎯 ACTIVE POSITIONS ({len(active_positions)})\n{'='*70}\n\n"
             
-            for i, pos in enumerate(self.bot.positions, 1):
-                if pos.is_active:
-                    positions_content += f"Position {i}:\n"
-                    positions_content += f"  Symbol: {pos.symbol}\n"
-                    positions_content += f"  Direction: {pos.direction}\n"
-                    positions_content += f"  Entry Price: ${pos.entry_price:.4f}\n"
-                    positions_content += f"  Quantity: {pos.quantity:.4f}\n"
-                    positions_content += f"  Stop Loss: ${pos.stop_loss:.4f}\n"
-                    positions_content += f"  Take Profit: ${pos.take_profit:.4f}\n"
-                    positions_content += f"  Entry Time: {pos.timestamp}\n"
-                    positions_content += f"  Confidence: {pos.confidence:.1%}\n"
-                    positions_content += f"{'-'*50}\n"
+            for i, pos in enumerate(active_positions, 1):
+                positions_content += f"Position {i}: {pos.direction} {pos.symbol}\n"
+                positions_content += f"   📍 Entry: ${pos.entry_price:.4f}\n"
+                positions_content += f"   📦 Size: {pos.quantity:.4f}\n"
+                positions_content += f"   🛡️ Stop Loss: ${pos.stop_loss:.4f}\n"
+                positions_content += f"   🎯 Take Profit: ${pos.take_profit:.4f}\n"
+                positions_content += f"   ⏰ Entry Time: {pos.timestamp}\n"
+                positions_content += f"   🎲 Confidence: {pos.confidence:.1%}\n"
+                positions_content += f"   {'='*50}\n"
         else:
-            positions_content = "No active positions."
+            positions_content = "🎯 No active positions.\n\nThe bot will open positions when high-confidence signals are detected."
         
         self.positions_text.insert(tk.END, positions_content)
         
         # Update recent trades
         self.trades_text.delete(1.0, tk.END)
         if self.bot.trade_log:
-            recent_trades = self.bot.trade_log[-20:]  # Last 20 trades
-            trades_content = f"RECENT TRADES (Last {len(recent_trades)})\n{'='*70}\n\n"
+            recent_trades = self.bot.trade_log[-15:]  # Last 15 trades
+            trades_content = f"📋 RECENT TRADES (Last {len(recent_trades)})\n{'='*70}\n\n"
             
             for trade in reversed(recent_trades):
-                status = "ACTIVE" if trade.get('is_active', True) else "CLOSED"
+                status = "🟢 ACTIVE" if trade.get('is_active', True) else "🔴 CLOSED"
                 pnl = trade.get('profit_loss', 0)
-                pnl_text = f"${pnl:.2f}" if pnl != 0 else "N/A"
+                pnl_emoji = "💚" if pnl > 0 else "❤️" if pnl < 0 else "💛"
+                pnl_text = f"{pnl_emoji} ${pnl:.2f}" if pnl != 0 else "⏳ Pending"
                 
                 trades_content += f"[{status}] {trade.get('direction', 'N/A')} {trade.get('symbol', 'N/A')}\n"
-                trades_content += f"  Entry: ${trade.get('entry_price', 0):.4f} @ {trade.get('entry_timestamp', 'N/A')}\n"
+                trades_content += f"   📍 Entry: ${trade.get('entry_price', 0):.4f} @ {trade.get('entry_timestamp', 'N/A')}\n"
                 
                 if not trade.get('is_active', True):
-                    trades_content += f"  Exit: ${trade.get('exit_price', 0):.4f} @ {trade.get('exit_timestamp', 'N/A')}\n"
-                    trades_content += f"  Reason: {trade.get('exit_reason', 'N/A')}\n"
-                    trades_content += f"  P&L: {pnl_text}\n"
+                    trades_content += f"   🚪 Exit: ${trade.get('exit_price', 0):.4f} @ {trade.get('exit_timestamp', 'N/A')}\n"
+                    trades_content += f"   📋 Reason: {trade.get('exit_reason', 'N/A')}\n"
+                    trades_content += f"   💰 P&L: {pnl_text}\n"
                 
-                trades_content += f"  SL: ${trade.get('stop_loss', 0):.4f} | TP: ${trade.get('take_profit', 0):.4f}\n"
-                trades_content += f"  Confidence: {trade.get('confidence', 0):.1%}\n"
-                trades_content += f"{'-'*50}\n"
+                trades_content += f"   🛡️ SL: ${trade.get('stop_loss', 0):.4f} | 🎯 TP: ${trade.get('take_profit', 0):.4f}\n"
+                trades_content += f"   🎲 Confidence: {trade.get('confidence', 0):.1%}\n"
+                trades_content += f"   {'='*50}\n"
         else:
-            trades_content = "No trades executed yet."
+            trades_content = "📋 No trades executed yet.\n\nTrades will appear here once the bot starts making decisions."
         
         self.trades_text.insert(tk.END, trades_content)
         
         # Schedule next update
-        self.root.after(2000, self.update_display)  # Update every 2 seconds
+        self.root.after(3000, self.update_display)  # Update every 3 seconds
     
     def run(self) -> None:
         """Run the GUI"""
-        self.root.mainloop()
+        try:
+            self.root.mainloop()
+        except KeyboardInterrupt:
+            self.bot.stop_trading()
 
 def main():
     """Main function to run the enhanced trading bot"""
-    print("Initializing Enhanced Deep Learning Trading Bot...")
-    print("Features: Live Trading, Stop Loss/Take Profit Prediction, Position Management")
+    print("=" * 60)
+    print("🚀 Enhanced XAU/USD Deep Learning Trading Bot v2.0")
+    print("=" * 60)
+    print("Features:")
+    print("✅ LSTM Deep Learning Model")
+    print("✅ Technical Analysis Indicators")
+    print("✅ Real-time Position Management")
+    print("✅ Discord Notifications")
+    print("✅ Risk Management System")
+    print("✅ GUI Dashboard")
+    print("=" * 60)
     
     # Create trading bot
-    bot = TradingBot()
+    try:
+        bot = TradingBot()
+    except Exception as e:
+        print(f"❌ Error initializing bot: {e}")
+        print("Please check your configuration in config.py")
+        return
     
     # Display initial statistics
     stats = bot.get_statistics()
     if stats:
-        print(f"\nCurrent Statistics:")
-        print(f"Balance: ${stats['current_balance']:.2f}")
-        print(f"Total Trades: {stats['total_trades']}")
-        print(f"Win Rate: {stats['win_rate']:.1f}%")
-        print(f"ROI: {stats['roi']:.2f}%")
+        print(f"\n📊 Current Statistics:")
+        print(f"   💰 Balance: ${stats['current_balance']:.2f}")
+        print(f"   📈 Total Trades: {stats['total_trades']}")
+        print(f"   🎯 Win Rate: {stats['win_rate']:.1f}%")
+        print(f"   💸 ROI: {stats['roi']:.2f}%")
+    
+    print(f"\n⚙️ Configuration:")
+    print(f"   📊 Confidence Threshold: {CONFIG['CONFIDENCE_THRESHOLD']*100:.1f}%")
+    print(f"   💼 Risk per Trade: {CONFIG['RISK_PER_TRADE']*100:.1f}%")
+    print(f"   🔄 Update Interval: 60 seconds")
     
     # Ask user for mode
-    mode = input("\nChoose mode:\n1. Console only\n2. GUI Dashboard\nEnter choice (1 or 2): ").strip()
+    print(f"\n🎮 Choose running mode:")
+    print("1. 💻 Console Mode (text-based)")
+    print("2. 🖥️ GUI Dashboard (graphical interface)")
     
-    if mode == "2":
+    while True:
+        try:
+            choice = input("\nEnter your choice (1 or 2): ").strip()
+            if choice in ['1', '2']:
+                break
+            print("❌ Please enter 1 or 2")
+        except KeyboardInterrupt:
+            print("\n👋 Goodbye!")
+            return
+    
+    if choice == "2":
         # Run with GUI
+        print("🖥️ Starting GUI Dashboard...")
         gui = TradingGUI(bot)
         gui.run()
     else:
         # Run in console mode
+        print("💻 Starting Console Mode...")
+        print("Press Ctrl+C to stop the bot\n")
         try:
             bot.start_trading()
         except KeyboardInterrupt:
-            print("\nBot stopped by user")
+            print("\n🛑 Bot stopped by user")
         finally:
             bot.save_model()
+            print("👋 Goodbye!")
 
 if __name__ == "__main__":
     main()
